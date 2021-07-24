@@ -1,0 +1,777 @@
+---
+title: "Failure Relapse India, version 6"
+author: "David Jenkins"
+date: "11/5/2018"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+    theme: "flatly"
+---
+
+# Load Data
+
+```{r load}
+suppressPackageStartupMessages({
+  library(singleCellTK)
+  library(DT)
+  library(ComplexHeatmap)
+  library(TBSignatureProfiler)
+  library(reshape2)
+  library(RColorBrewer)
+  library(ggplot2)
+})
+
+TBsignatures <- readRDS("~/git/TBSignatureProfiler/misc/TBsignatures_all.rds")
+
+indata <- readRDS("failure_relapse_india_2018.rds")
+indata <- indata[rowSds(assay(indata, "counts")) != 0,]
+indata_subset <- indata[, colnames(indata) != "102-00107-A0"]
+indata_subset <- indata_subset[rowSds(assay(indata_subset, "counts")) != 0,]
+colData(indata)$visit_subjtype <- paste(as.character(colData(indata)$visit),
+                                        as.character(colData(indata)$subjtype,
+                                                     sep=" "))
+colData(indata_subset)$visit_subjtype <- paste(as.character(colData(indata_subset)$visit),
+                                               as.character(colData(indata_subset)$subjtype,
+                                                            sep=" "))
+colData(indata_subset)$Subject <- gsub("\\d$", "", colnames(indata_subset))
+knitr::kable(table(colData(indata)[,c("visit", "subjtype")]))
+```
+
+# PCA Visualization
+
+```{r pca}
+plotPCA(indata, colorBy = "lane", shape = "visit", reducedDimName = "PCA_logtpm")
+```
+
+# Random Genes {.tabset}
+
+## Full Data {.tabset}
+
+### Housekeeping Control Genes
+
+```{r housekeeping, fig.width=10}
+colList <- list(visit = c("Baseline"="blue", "Month 2"="yellow"),
+                subjtype = c("failure"="red", "Control"="grey"))
+signatureGeneHeatmap(indata, "logtpm", c("GAPDH", "ACTB", "B2M", "HMBS", "PPIB", "TRAP1", "DECR1", "FPGS", "FARP1", "MAPRE2", "PEX16", "GINS2", "CRY2", "CSNK1G2", "A4GALT"),
+                     annotationColNames = c("visit", "subjtype"),
+                     colList = colList, name = "Housekeeping Genes",
+                     showRowNames = TRUE, scale=FALSE)
+```
+
+### 100 Genes
+
+```{r 100g, fig.width=10}
+colList <- list(visit = c("Baseline"="blue", "Month 2"="yellow"),
+                subjtype = c("failure"="red", "Control"="grey"))
+signatureGeneHeatmap(indata, "logtpm", sample(rownames(indata), 100),
+                     annotationColNames = c("visit", "subjtype"),
+                     colList = colList, name = "100 Random genes",
+                     showRowNames = FALSE)
+```
+
+### 500 Genes
+
+```{r 500g, fig.width=10}
+signatureGeneHeatmap(indata, "logtpm", sample(rownames(indata), 500),
+                     annotationColNames = c("visit", "subjtype"),
+                     colList = colList, name = "500 Random genes",
+                     showRowNames = FALSE)
+```
+
+### 1000 Genes
+
+```{r 1000g, fig.width=10}
+signatureGeneHeatmap(indata, "logtpm", sample(rownames(indata), 1000),
+                     annotationColNames = c("visit", "subjtype"),
+                     colList = colList, name = "1000 Random genes",
+                     showRowNames = FALSE)
+
+signatureGeneHeatmap(indata, "logtpm", sample(rownames(indata), 1000),
+                     annotationColNames = c("flowcell", "lane"),
+                     name = "1000 Random genes",
+                     showRowNames = FALSE)
+```
+
+## Subset Data (without 102-00107-A0) {.tabset}
+
+### 100 Genes
+
+```{r s100g, fig.width=10}
+signatureGeneHeatmap(indata_subset, "logtpm", sample(rownames(indata_subset), 100),
+                     annotationColNames = c("visit", "subjtype"),
+                     colList = colList, name = "100 Random genes",
+                     showRowNames = FALSE)
+```
+
+### 500 Genes
+
+```{r s500g, fig.width=10}
+signatureGeneHeatmap(indata_subset, "logtpm", sample(rownames(indata_subset), 500),
+                     annotationColNames = c("visit", "subjtype"),
+                     colList = colList, name = "500 Random genes",
+                     showRowNames = FALSE)
+```
+
+### 1000 Genes
+
+```{r s1000g, fig.width=10}
+signatureGeneHeatmap(indata_subset, "logtpm", sample(rownames(indata_subset), 1000),
+                     annotationColNames = c("visit", "subjtype"),
+                     colList = colList, name = "1000 Random genes",
+                     showRowNames = FALSE)
+
+signatureGeneHeatmap(indata_subset, "logtpm", sample(rownames(indata_subset), 1000),
+                     annotationColNames = c("flowcell", "lane"),
+                     name = "1000 Random genes",
+                     showRowNames = FALSE)
+```
+
+### chrY Genes
+
+```{r chryg}
+chrygenes <- read.table("../20180725_latent_capetown_2018/chrygenes.txt",
+                        stringsAsFactors = FALSE)
+chrygenes <- chrygenes$V2
+chrygenes <- chrygenes[chrygenes %in% rownames(indata_subset)]
+bestygenes <- chrygenes[rowSds(assay(indata_subset, "logtpm")[chrygenes,]) > 1.5 &
+                          rowSums(assay(indata_subset, "logtpm")[chrygenes,]) >
+                          ncol(indata_subset)*.2]
+signatureGeneHeatmap(indata_subset, "logcounts", sigGenes = bestygenes,
+                     annotationColNames = c("sex", "visit_subjtype"),
+                     scale=F, name = "Chromosome Y Genes", showColumnNames = FALSE)
+```
+
+### Most Variable Genes
+
+```{r mostvar}
+signatureGeneHeatmap(indata_subset, "logtpm", rownames(indata_subset)[order(matrixStats::rowVars(assay(indata_subset, "logtpm")), decreasing = TRUE)[1:500]],
+                     annotationColNames = c("visit", "subjtype"),
+                     colList = colList, name = "500 Most Variable",
+                     showRowNames = FALSE)
+```
+
+
+# Diffex Baseline control vs failure {.tabset}
+
+## Limma
+
+```{r diffex_lim}
+baseline_data <- indata_subset[,colData(indata_subset)$visit == "Baseline"]
+baseline_data <- baseline_data[rowSds(assay(baseline_data, "counts")) != 0,]
+baselineres <- scDiffEx(baseline_data, "logtpm", "subjtype",
+                        ntop=nrow(baseline_data), usesig = FALSE,
+         diffexmethod = "limma")
+
+res <- lapply(colnames(colData(baseline_data)[,3:16]), function(x){
+  return(scDiffEx(baseline_data, "logtpm", "subjtype",
+           covariates = x,
+           ntop=nrow(baseline_data), usesig = FALSE,
+           diffexmethod = "limma"))
+})
+names(res) <- colnames(colData(baseline_data)[,3:16])
+lapply(res, function(x){
+  sum(x$padj < 0.05)
+})
+```
+
+No significant genes found at FDR < 0.05 without covariates or with smoking status,
+diabetes status, cough duration, random blood sugar, alcohol frequency, drinks
+per day, alcuse, alc_score, diabetes, age, sex, riskyalc, time2pos_days, and
+smear result as single covariates.
+
+## DESeq2
+
+```{r diffex_des}
+colList_m <- list(visit = c("Baseline"="blue", "Month 2"="yellow"),
+                  subjtype = c("failure"="red", "Control"="grey"),
+                  totmiss = c("0"=brewer.pal(6, "Set1")[1],
+                              "1"=brewer.pal(6, "Set1")[2],
+                              "2"=brewer.pal(6, "Set1")[3],
+                              "5"=brewer.pal(6, "Set1")[4],
+                              "6"=brewer.pal(6, "Set1")[5],
+                              "11"=brewer.pal(6, "Set1")[6]))
+baselineresd <- scDiffEx(baseline_data, "counts", "subjtype",
+                         ntop=nrow(baseline_data), usesig = FALSE,
+                         diffexmethod = "DESeq2")
+
+# signatureGeneHeatmap(baseline_data, "logtpm", rownames(sig)[sig$log2FoldChange> 1],
+#                      name="DESeq2",
+#                      signatureColNames = NULL,
+#                      annotationColNames = c("visit", "subjtype"), colList = colList, scale = TRUE,
+#                      showRowNames = FALSE)
+
+signatureGeneHeatmap(baseline_data, "logtpm", rownames(baselineresd)[baselineresd$padj< 0.05],
+                     name="DESeq2",
+                     signatureColNames = NULL,
+                     annotationColNames = c("visit", "subjtype"), colList = colList, scale = TRUE,
+                     showRowNames = FALSE)
+
+signatureGeneHeatmap(baseline_data, "logtpm", rownames(baselineresd)[baselineresd$padj< 0.05],
+                     name="DESeq2",
+                     signatureColNames = NULL,
+                     annotationColNames = c("flowcell", "lane"), scale = TRUE,
+                     showRowNames = FALSE)
+```
+
+## Limma (complient only)
+
+```{r diffex_lim2}
+baseline_data_complient <- indata_subset[,colData(indata_subset)$visit == "Baseline"]
+#only subjects who stay complient
+baseline_data_complient <- baseline_data_complient[, !(colData(baseline_data_complient)$Subject %in% as.character(na.omit(colData(indata_subset)$Subject[colData(indata_subset)$totmiss != 0])))]
+baseline_data_complient <- baseline_data_complient[rowSds(assay(baseline_data_complient, "counts")) != 0,]
+baselineres <- scDiffEx(baseline_data_complient, "logtpm", "subjtype",
+                        ntop=nrow(baseline_data_complient), usesig = FALSE,
+         diffexmethod = "limma")
+
+res <- lapply(colnames(colData(baseline_data_complient)[,3:16]), function(x){
+  return(scDiffEx(baseline_data_complient, "logtpm", "subjtype",
+           covariates = x,
+           ntop=nrow(baseline_data_complient), usesig = FALSE,
+           diffexmethod = "limma"))
+})
+names(res) <- colnames(colData(baseline_data_complient)[,3:16])
+lapply(res, function(x){
+  sum(x$padj < 0.05)
+})
+```
+
+## DESeq2 (complient only)
+
+```{r}
+baselineresd <- scDiffEx(baseline_data_complient, "counts", "subjtype",
+                         ntop=nrow(baseline_data_complient), usesig = FALSE,
+                         diffexmethod = "DESeq2")
+signatureGeneHeatmap(baseline_data_complient, "logtpm", rownames(baselineresd)[baselineresd$padj< 0.05],
+                     name="DESeq2",
+                     signatureColNames = NULL,
+                     annotationColNames = c("visit", "subjtype"), colList = colList, scale = TRUE,
+                     showRowNames = FALSE)
+```
+
+# Pathways {.tabset}
+
+```{r alldata, fig.width=10, fig.height=7, message=FALSE, results='hide'}
+make_sig_heatmap_split <- function(sigresults, inputdata, name, scale = FALSE){
+  originsigres <- sigresults
+  topha1 <- HeatmapAnnotation(
+    df = data.frame(colData(inputdata)[paste0(colData(inputdata)$visit, colData(inputdata)$subjtype) %in% "BaselineControl",c("visit","subjtype")]),
+    col = list(visit = c("Baseline"="blue", "Month 2"="yellow"),
+               subjtype = c("failure"="red", "Control"="grey")),
+    height = unit(1, "cm"), show_legend = T, show_annotation_name = FALSE)
+  sigresults <- originsigres[,paste0(colData(inputdata)$visit, colData(inputdata)$subjtype) %in% "BaselineControl"]
+  if(scale){
+    sigresults <- t(scale(t(sigresults)))
+  }
+  h1 <- Heatmap(sigresults, show_row_names = FALSE, show_column_names = TRUE,
+               top_annotation = topha1, name = name)
+  topha2 <- HeatmapAnnotation(
+    df = data.frame(colData(inputdata)[paste0(colData(inputdata)$visit, colData(inputdata)$subjtype) %in% "Baselinefailure",c("visit","subjtype")]),
+    col = list(visit = c("Baseline"="blue", "Month 2"="yellow"),
+               subjtype = c("failure"="red", "Control"="grey")),
+    height = unit(1, "cm"), show_legend = T, show_annotation_name = FALSE)
+  sigresults <- originsigres[,paste0(colData(inputdata)$visit, colData(inputdata)$subjtype) %in% "Baselinefailure"]
+  if(scale){
+    sigresults <- t(scale(t(sigresults)))
+  }
+  h2 <- Heatmap(sigresults, show_row_names = FALSE, show_column_names = TRUE,
+               top_annotation = topha2, name = name)
+  topha3 <- HeatmapAnnotation(
+    df = data.frame(colData(inputdata)[paste0(colData(inputdata)$visit, colData(inputdata)$subjtype) %in% "Month 2failure",c("visit","subjtype")]),
+    col = list(visit = c("Baseline"="blue", "Month 2"="yellow"),
+               subjtype = c("failure"="red", "Control"="grey")),
+    height = unit(1, "cm"), show_legend = T, show_annotation_name = TRUE)
+  sigresults <- originsigres[,paste0(colData(inputdata)$visit, colData(inputdata)$subjtype) %in% "Month 2failure"]
+  if(scale){
+    sigresults <- t(scale(t(sigresults)))
+  }
+  h3 <- Heatmap(sigresults, show_row_names = TRUE, show_column_names = TRUE,
+               top_annotation = topha3, name = name)
+  draw(h1 + h2 + h3,
+       annotation_legend_side="bottom")
+}
+
+make_change_in_sig_plot <- function(inputdata, pathwaydata, datatype, scale=FALSE){
+  #subset indata to failures
+  inputdata <- inputdata[,colData(inputdata)$subjtype == "failure"]
+  pathwaydata <- pathwaydata[,colnames(inputdata)]
+  if(scale){
+    pathwaydata <- t(scale(t(pathwaydata)))
+  }
+  boxplotdf <- data.frame(t(pathwaydata), Visit=colData(inputdata)$visit, Subject=gsub("\\d$", "", colnames(inputdata)))
+  boxplotdfm <- melt(boxplotdf, value.name="Score", variable.name = "Signature", id.vars = c("Visit", "Subject"))
+  ggplot(boxplotdfm, aes(x=Visit, y=Score, group=Subject)) +
+    geom_point(aes(color=Subject)) +  geom_line(aes(color=Subject)) +
+    facet_wrap(~Signature, scales = 'free') +
+    ggtitle(datatype)
+}
+```
+
+## Subset Data (without 102-00107-A0) {.tabset}
+
+```{r subdata, fig.width=10, fig.height=7, message=FALSE, results='hide'}
+gsva_res <- runTBsigProfiler(indata_subset, useAssay = "logtpm", algorithm = "GSVA",
+                             signatures = TBsignatures,
+                             parallel.sz = 4)
+ssgsea_res <- runTBsigProfiler(indata_subset, useAssay = "logtpm", algorithm = "ssGSEA",
+                               signatures = TBsignatures,
+                               parallel.sz = 4)
+assign_res <- runTBsigProfiler(indata_subset, useAssay = "logtpm", algorithm = "ASSIGN",
+                               signatures = TBsignatures,
+                               assignDir = "assignRes_sub")
+smokgenes <- readRDS("smokingsig_symbol.rds")
+smoking_res <- runTBsigProfiler(indata_subset, useAssay = "logtpm",
+                                signatures = list(smoking=smokgenes),
+                                algorithm = c("GSVA", "ssGSEA"),
+                                combineSigAndAlgorithm = TRUE, parallel.sz = 4)
+
+combinedData <- runTBsigProfiler(indata_subset, useAssay = "logtpm",
+                                 algorithm = c("GSVA", "ssGSEA", "ASSIGN"),
+                                 signatures = TBsignatures,
+                                 assignDir = "assignRes_sub",
+                                 combineSigAndAlgorithm = TRUE,
+                                 parallel.sz = 4)
+```
+
+### Smoking Status
+
+```{r}
+colData(smoking_res)$IC_SMOKHX <- factor(colData(smoking_res)$IC_SMOKHX, levels = c("No, never",
+                                                                                    "Yes, former",
+                                                                                    "Yes, current"))
+signatureGeneHeatmap(smoking_res, "logtpm", smokgenes,
+                     name="Smoking",
+                     signatureColNames = paste(c("GSVA", "ssGSEA"), 
+                                               "smoking", sep="_"),
+                     annotationColNames = c("IC_SMOKHX", "visit_subjtype"),
+                     showRowNames = FALSE, showColumnNames = FALSE)
+
+
+signatureBoxplot(smoking_res, signatureColNames = c("GSVA_smoking", "ssGSEA_smoking"), name="Smoking",
+                 annotationColName = "IC_SMOKHX")
+
+```
+
+### GSVA {.tabset}
+
+#### Heatmap
+
+```{r subgsva_a, fig.width=10, fig.height=8}
+signatureHeatmap(gsva_res, name="GSVA", signatureColNames = names(TBsignatures),
+                 annotationColNames = c("visit", "subjtype", "totmiss"),
+                 colList = colList_m)
+```
+
+#### Heatmap Split
+
+```{r subgsva_b, fig.width=10, fig.height=8}
+make_sig_heatmap_split(t(as.matrix(colData(gsva_res)[,names(TBsignatures)])), indata_subset, "GSVA")
+```
+
+#### Boxplot
+
+```{r subgsva_c, fig.width=10, fig.height=8}
+signatureBoxplot(gsva_res, name="GSVA", signatureColNames = names(TBsignatures),
+                 annotationColName = c("visit_subjtype"))
+```
+
+#### Change in Signature
+
+```{r subgsva_d, fig.width=10, fig.height=8}
+make_change_in_sig_plot(indata_subset, t(as.matrix(colData(gsva_res)[,names(TBsignatures)])), "GSVA")
+```
+
+#### Delta vs Missed Doses
+
+```{r subgsva_delta, fig.width=10, fig.height=8}
+make_diff_vs_annot_scatter <- function(inputdata, pathwaydata, datatype, scale=FALSE){
+  #subset indata to failures
+  inputdata <- inputdata[,colData(inputdata)$subjtype == "failure"]
+  pathwaydata <- pathwaydata[,colnames(inputdata)]
+  if(scale){
+    pathwaydata <- t(scale(t(pathwaydata)))
+  }
+  boxplotdf <- data.frame(t(pathwaydata), Visit=colData(inputdata)$visit, Subject=gsub("\\d$", "", colnames(inputdata)), totmiss=colData(inputdata)$totmiss)
+  split_bl <- boxplotdf[boxplotdf$Visit == "Baseline",]
+  split_2 <- boxplotdf[boxplotdf$Visit != "Baseline",]
+  split_bl <- split_bl[split_bl$Subject %in% split_2$Subject,]
+  split_2 <- split_2[split_2$Subject %in% split_bl$Subject,]
+  diffdf <- split_2[,1:31] - split_bl[,1:31]
+  diffdf$totmiss <- split_2$totmiss
+  diffdf$Subject <- split_2$Subject
+  diffdf <- diffdf[!is.na(diffdf$totmiss),]
+  boxplotdfm <- melt(diffdf, value.name="ScoreDelta", variable.name = "Signature", id.vars = c("totmiss", "Subject"))
+  ggplot(boxplotdfm, aes(x=totmiss, y=ScoreDelta, group=Subject)) +
+    geom_point(aes(color=Subject)) +
+    facet_wrap(~Signature, scales = 'free') +
+    ggtitle(datatype)
+}
+make_diff_vs_annot_scatter(gsva_res, t(as.matrix(colData(gsva_res)[,names(TBsignatures)])), "GSVA")
+misseddoses <- gsva_res[,colData(gsva_res)$totmiss > 1 & !is.na(colData(gsva_res)$totmiss)]
+misseddoses <- gsva_res[,gsub("\\d$", "", colnames(gsva_res)) %in% gsub("\\d$", "", colnames(misseddoses))]
+make_change_in_sig_plot(misseddoses, t(as.matrix(colData(misseddoses)[,names(TBsignatures)])), "GSVA")
+```
+
+#### Month 2 Non-adherent vs All Baseline
+
+```{r}
+#subset data to m2 non-adherent vs all baseline
+subset <- gsva_res[,(colData(gsva_res)$visit == "Month 2" & tidyr::replace_na(colData(gsva_res)$totmiss, 0) != 0) | colData(gsva_res)$visit == "Baseline"]
+gsvares <- data.frame(colData(subset)[,names(TBsignatures)])
+
+pvalres <- apply(gsvares, 2, function(x){
+  return(t.test(x[colData(subset)$visit == "Baseline"],
+                x[colData(subset)$visit == "Month 2"])$p.value)
+})
+which(p.adjust(pvalres, method = "fdr")< 0.05)
+names(which(pvalres< 0.05))
+signatureBoxplot(subset, signatureColNames = names(which(pvalres< 0.05)), annotationColName = "visit")
+pvalres[pvalres< 0.05]
+```
+
+#### Basline samples adherent at M2 vs Basline samples non-adherent at M2
+
+```{r}
+annotdata <- data.frame(colData(gsva_res))
+annotdata <- annotdata[annotdata$visit == "Month 2",]
+annotdata <- annotdata[!is.na(annotdata$totmiss),]
+adherent <- annotdata$subject[annotdata$totmiss == 0]
+nonadherent <- annotdata$subject[annotdata$totmiss != 0]
+bl <- gsva_res[,colData(gsva_res)$visit == "Baseline"]
+bl <- bl[, colData(bl)$subject  %in% c(adherent, nonadherent)]
+colData(bl)$adherent <- ifelse(colData(bl)$subject %in% adherent, "adherent", "non-adherent")
+
+gsvares <- data.frame(colData(bl)[,names(TBsignatures)])
+
+pvalres <- apply(gsvares, 2, function(x){
+  return(t.test(x[colData(bl)$adherent == "adherent"],
+                x[colData(bl)$adherent == "non-adherent"])$p.value)
+})
+which(p.adjust(pvalres, method = "fdr")< 0.05)
+names(which(pvalres< 0.05))
+signatureBoxplot(subset, signatureColNames = names(which(pvalres< 0.05)), annotationColName = "visit")
+pvalres[pvalres< 0.05]
+```
+
+### Individual Signatures {.tabset}
+
+#### ACS_COR_16
+
+```{r subeachsig1}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[1]],
+                     name=names(TBsignatures[1]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[1]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[1]],
+                     name=names(TBsignatures[1]),
+                     annotationColNames = c("flowcell"))
+
+signatureGeneHeatmap(gsva_res[,colData(gsva_res)$subjtype=="failure" & tidyr::replace_na(colData(gsva_res)$totmiss, 0) == 0], "logtpm", TBsignatures[[1]],
+                     name=names(TBsignatures[1]), showColumnNames = FALSE,
+                     signatureColNames = paste(names(TBsignatures[1]), sep="_"),
+                     annotationColNames = c("visit"), colList = colList[1])
+```
+
+#### Anderson_TB_vs_LTBI_42
+
+```{r subeachsig2}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[2]],
+                     name=names(TBsignatures[2]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[2]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+```
+
+#### Anderson_TB_vs_other_LTBI_51
+
+```{r subeachsig3}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[3]],
+                     name=names(TBsignatures[3]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[3]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+```
+
+#### Berry_393
+
+```{r subeachsig4}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[4]],
+                     name=names(TBsignatures[4]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[4]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+```
+
+#### Berry_86
+
+```{r subeachsig5}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[5]],
+                     name=names(TBsignatures[5]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[5]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+```
+
+#### Blankley_380
+
+```{r subeachsig6}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[6]],
+                     name=names(TBsignatures[6]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[6]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+```
+
+#### Blankley_5
+
+```{r subeachsig7}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[7]],
+                     name=names(TBsignatures[7]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[7]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+```
+
+#### Bloom_140
+
+```{r subeachsig8}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[8]],
+                     name=names(TBsignatures[8]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[8]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+```
+
+#### DISEASE_9
+
+```{r subeachsig9}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[9]],
+                     name=names(TBsignatures[9]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[9]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+```
+
+#### Esmail_subclinical_203
+
+```{r subeachsig10}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[10]],
+                     name=names(TBsignatures[10]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[10]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+```
+
+#### Esmail_subclinical_82
+
+```{r subeachsig11}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[11]],
+                     name=names(TBsignatures[11]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[11]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+```
+
+#### Esmail_TB_vs_LTBI_893
+
+```{r subeachsig12}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[12]],
+                     name=names(TBsignatures[12]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[12]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+```
+
+#### FAILURE_13
+
+```{r subeachsig13}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[13]],
+                     name=names(TBsignatures[13]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[13]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+```
+
+#### Jacobsen_3
+
+```{r subeachsig14}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[14]],
+                     name=names(TBsignatures[14]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[14]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+```
+
+#### Kaforou_TB_vs_LTBI_27
+
+```{r subeachsig15}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[15]],
+                     name=names(TBsignatures[15]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[15]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+```
+
+#### Kaforou_TB_vs_LTBI_other_53
+
+```{r subeachsig16}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[16]],
+                     name=names(TBsignatures[16]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[16]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+```
+
+#### Kaforou_TB_vs_other_44
+
+```{r subeachsig17}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[17]],
+                     name=names(TBsignatures[17]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[17]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+```
+
+#### Lee_4
+
+```{r subeachsig18}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[18]],
+                     name=names(TBsignatures[18]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[18]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+```
+
+#### Maertzdorf_100
+
+```{r subeachsig19}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[19]],
+                     name=names(TBsignatures[19]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[19]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+```
+
+#### Maertzdorf_4
+
+```{r subeachsig20}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[20]],
+                     name=names(TBsignatures[20]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[20]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+```
+
+#### Predict29
+
+```{r subeachsig21}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[21]],
+                     name=names(TBsignatures[21]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[21]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+```
+
+#### RESPONSE5
+
+```{r subeachsig22}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[22]],
+                     name=names(TBsignatures[22]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[22]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+```
+
+#### Roe_4
+
+```{r subeachsig23}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[23]],
+                     name=names(TBsignatures[23]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[23]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+```
+
+#### Sambarey_10
+
+```{r subeachsig24}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[24]],
+                     name=names(TBsignatures[24]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[24]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+```
+
+#### Singhania_20
+
+```{r subeachsig25}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[25]],
+                     name=names(TBsignatures[25]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[25]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+```
+
+#### Sloot_2
+
+```{r subeachsig26}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[26]],
+                     name=names(TBsignatures[26]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[26]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+```
+
+#### Suliman_RISK4
+
+```{r subeachsig27}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[27]],
+                     name=names(TBsignatures[27]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[27]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+```
+
+#### Sweeney_DIAG3
+
+```{r subeachsig28}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[28]],
+                     name=names(TBsignatures[28]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[28]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+```
+
+#### Walter_TB_vs_LTBI_51
+
+```{r subeachsig29}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[29]],
+                     name=names(TBsignatures[29]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[29]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+```
+
+#### Walter_TB_vs_Pneumonia_47
+
+```{r subeachsig30}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[30]],
+                     name=names(TBsignatures[30]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[30]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+```
+
+#### Walter_TB_vs_Pneumonia_LTBI_119
+
+```{r subeachsig31}
+signatureGeneHeatmap(combinedData, "logtpm", TBsignatures[[31]],
+                     name=names(TBsignatures[31]),
+                     signatureColNames = paste(c("GSVA", "ssGSEA", "ASSIGN"), 
+                                               names(TBsignatures[31]), sep="_"),
+                     annotationColNames = c("visit", "subjtype"), colList = colList)
+```

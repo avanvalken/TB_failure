@@ -1,0 +1,229 @@
+---
+title: "TB_FAILURE_SUBJID_DATA"
+output: html_notebook
+---
+
+```{r}
+library(RODBC)
+library(tidyverse)
+library(readxl)
+library(lubridate)
+```
+
+```{r}
+dta <- odbcConnectAccess2007("20210326_Indo-US VAP.accdb")   #specifies the file path
+
+# original data for comparison- n from combine_failure_data.RMD
+#subj_data <- as.data.frame(n)
+
+#get rid of month at end of identifier
+subj_data <- read.csv("subject_id_india_2019_failure.csv")
+names(subj_data) <- c("number", "SUBJID")
+```
+
+```{r}
+# importing appropriate tables from database
+
+# initial cases screening
+df.1A_ICScreening<- sqlFetch(dta, "1A_ICScreening") ## male/female/age
+df.1A_ICScreening<-filter(df.1A_ICScreening, SUBJID %in% subj_data$SUBJID)
+
+
+# initial cases baseline
+df.2A_ICBaseline<- sqlFetch(dta, "2A_ICBaseline")
+df.2A_ICBaseline<-filter(df.2A_ICBaseline, SUBJID %in% subj_data$SUBJID)
+
+
+# initial cases follow-up
+df.12A_FUA <- sqlFetch(dta, "12A_FUA")
+df.12A_FUA<-filter(df.12A_FUA, SUBJID %in% subj_data$SUBJID)
+
+
+df.13_TxCompliance <- sqlFetch(dta, "13_TxCompliance")
+df.13_TxCompliance<-filter(df.13_TxCompliance, SUBJID %in% subj_data$SUBJID)
+
+
+df.14_Case_Control <- sqlFetch(dta, "14_Case_Control")
+df.14_Case_Control <-filter(df.14_Case_Control, SUBJID %in% subj_data$SUBJID)
+
+df.98A_FOA <- sqlFetch(dta, "98A_FOA")
+df.98A_FOA <-filter(df.98A_FOA, SUBJID %in% subj_data$SUBJID)
+
+
+
+df.9_EEval <- sqlFetch(dta, "9_EEval")
+df.9_EEval <-filter(df.9_EEval, SUBJID %in% subj_data$SUBJID)
+
+df.19_Smear <- sqlFetch(dta, "19_Smear")
+df.19_Smear <-filter(df.19_Smear, SUBJID %in% subj_data$SUBJID)
+
+df.4_Smear <- sqlFetch(dta, "4_Smear")
+df.4_Smear <-filter(df.4_Smear, SUBJID %in% subj_data$SUBJID)
+
+df.8_CXR <- sqlFetch(dta, "8_CXR")
+df.8_CXR <-filter(df.8_CXR, SUBJID %in% subj_data$SUBJID)
+
+```
+
+# columns to acquire to match india_2018_SE data
+```{r}
+
+india_2018_SE <- readRDS("india_2018_SE.RDS")
+collect <- toupper(names(colData(india_2018_SE)) )
+
+```
+
+# Smoking and alcohol use
+```{r}
+# pick which columns to keep from initial contacts and household contacts
+ic_select <- c("SUBJID", "IC_ALCDOSTX","IC_ALCFRQ", "IC_ALCUSE", "IC_SMOKHX" , "IC_RBS", "IC_DMDX", collect )
+
+
+# select only columns with smoking or alcohol data plus ID's
+df.2A_ICBaseline <- select_if(df.2A_ICBaseline, colnames(df.2A_ICBaseline) %in% ic_select)
+
+
+
+
+
+# make alcohol column with any alcohol
+##df$ALC <-  rowSums(df[,c(3:5)], na.rm = TRUE)
+
+
+
+
+```
+
+## Calculate male/female/age
+```{r}
+
+# pick which columns to keep from initial contacts and household contacts
+ic_select <- c("SUBJID","FID", "IS_SEX", "IS_AGE", "IS_BIRTHDAT", "IS_AGEEST", "IS_VISDAT", collect)
+
+
+# select only columns with smoking or alcohol data plus ID's
+df.1A_ICScreening <- select_if(df.1A_ICScreening, colnames(df.1A_ICScreening) %in% ic_select)
+
+
+
+
+df.1A_ICScreening$IS_VISDAT <- ymd(df.1A_ICScreening$IS_VISDAT)
+df.1A_ICScreening$IS_BIRTHDAT <- ymd(df.1A_ICScreening$IS_BIRTHDAT)
+
+df.1A_ICScreening <- df.1A_ICScreening %>% 
+  mutate(EST_AGE = (interval(start=IS_BIRTHDAT, end = IS_VISDAT)/dyears(1))) 
+  
+df.1A_ICScreening$IS_AGE <- as.numeric(df.1A_ICScreening$IS_AGE)
+df.1A_ICScreening$EST_AGE <- as.numeric(df.1A_ICScreening$EST_AGE)
+
+df.1A_ICScreening <- df.1A_ICScreening %>% 
+  rowwise() %>% 
+  mutate(CALC_AGE = sum(EST_AGE, IS_AGE, na.rm = TRUE))
+
+
+```
+
+
+
+## Calculate FUA
+```{r}
+
+# pick which columns to keep from initial contacts and household contacts
+ic_select <- c("SUBJID", "FUA_VISDAT", "FUA_VISIT", "FUA_SSCHG","FUA_COUGHDUR","FUA_TXCOMP",  collect)
+
+
+# select only columns in ic_select
+df.12A_FUA <- select_if(df.12A_FUA, colnames(df.12A_FUA) %in% ic_select)
+
+
+
+```
+
+## TxCompliance - necessary?
+```{r}
+
+
+ic_select <- c("SUBJID", "TC_VISIT")
+
+df.13_TxCompliance <- select_if(df.13_TxCompliance, colnames(df.13_TxCompliance) %in% ic_select)
+
+
+```
+
+## Smear
+```{r}
+ic_select <- c("SUBJID", "CM_VISIT","CM_AFBQUAN2")
+
+df.19_Smear <- select_if(df.19_Smear, colnames(df.19_Smear) %in% ic_select)
+
+ic_select <- c("SUBJID", "ZN_VISIT","ZN_AFBQUAN2")
+
+df.4_Smear <- select_if(df.4_Smear, colnames(df.4_Smear) %in% ic_select)
+
+```
+
+# CXR
+```{r}
+ic_select <- c("SUBJID", "CXR_VISIT","CXR_CXRSCOR", "CXR_CAVIT", "CXR_SUMSCORE")
+
+df.8_CXR <- select_if(df.8_CXR, colnames(df.8_CXR) %in% ic_select)
+
+```
+
+
+# Merging and removing columns we don't need
+```{r}
+# combine the two dataframes
+table1 <- merge(df.1A_ICScreening,
+                df.13_TxCompliance,
+                #df.12A_FUA, 
+                #df.2A_ICBaseline,
+                by="SUBJID")
+
+table1 <- merge(table1,
+                df.12A_FUA, 
+                #df.2A_ICBaseline,
+                by="SUBJID")
+
+table1 <- merge(table1,
+                df.2A_ICBaseline,
+                by="SUBJID")
+
+table1 <- merge(table1,
+                df.19_Smear,
+                by="SUBJID")
+
+table1$batch <- rep(2)
+
+#add up the alcohol scores and add it to table1
+alc_score$alc_score <- rowSums(alc_score[,c(1:3)], na.rm = TRUE)
+
+table1$alc_score <- alc_score$alc_score
+
+
+# making Diabetes column with RBS data
+table1$diabetes <- ifelse(table1$IC_RBS < 200 & !is.na(table1$IC_RBS) | table1$IC_DMDX == "Yes", 1,0)
+
+
+#change name of some columns
+names(table1[names(table1)=="CALC_AGE"]) <- "AGE"
+names(table1[names(table1)=="IS_SEX"]) <- "SEX"
+#names(table1[names(table1)==""]) <- ""
+
+
+
+#C("SUBJTYPE)
+
+# removing unwanted columns
+columns_to_keep <- c("SUBJID", "FID", "SMOKHX", "ALC", "SEX", "AGE", "DIABETES", "batch")
+table1 <- select(table1, all_of(columns_to_keep))
+
+HC_RLTN <- subj_data[,c("SUBJID", "HC_RELATN")]
+
+table1 <- merge(table1, HC_RLTN, by= "SUBJID")
+
+table1 <- table1 %>% rename(AGE = CALC_AGE)
+# make into csv file
+write.csv(table1, "table1_data.csv")
+```
+

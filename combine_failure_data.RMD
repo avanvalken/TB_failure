@@ -1,0 +1,398 @@
+---
+title: "TB_failure-make SCE object"
+author: "avanvalken"
+date: "2/11/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+suppressPackageStartupMessages({
+  library(SummarizedExperiment)
+  library(SingleCellExperiment)
+  library(singleCellTK)
+  library(tidyverse)
+})
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load data
+```{r}
+india_2018 <- read.table("features_combined_india_2018.txt", sep = "\t")
+india_2019 <- read.table("features_combined_india_2019.txt", sep = "\t")
+thompson_2017 <-read.table("features_combined_thompson_2017.txt", sep = "\t")
+
+data_annot <- read.table("failure_data_final_annotation.txt", sep = "\t", header=T) # coldata for india_2018 
+
+sratble <- read.table("SraRunTable.txt", sep="\t", header=T)
+
+clinical_data_final_v2 <- read.csv("clinical data final_v2.csv")
+```
+
+# thompson_2017 data
+```{r}
+thompson <- readRDS("thompson_data.rds")
+thompson_wtpm <- readRDS("thompson_data_wtpm.rds")
+thompson_blcvsf <- readRDS("thompsonblcvsf.rds")
+
+# keep only certain columns from SraRunTable.txt
+col_keep <- c("Run", 
+              "disease_state", 
+              "Experiment", 
+              "mgit", 
+              "Sample_code", 
+              "Sample.Name", 
+              "SUBJECT", 
+              "tgrv", 
+              "Time",
+              "timetonegativity",
+              "treatmentresult",
+              "xpert")
+
+df <- sratble[,col_keep]
+
+# make key for colnames(thompson_2017)
+key <-  df$Sample.Name
+names(key) <- df$Run 
+
+# list of colnames from thompson_2017
+x <- colnames(thompson_2017)
+
+# change sra# to GSM
+y <- key[ match(x, names(key))]
+colnames(thompson_2017) <- y
+
+# list of colnames from thompson_2017
+x <- colnames(thompson_2017)
+
+
+twtpmx <- (attr(thompson_wtpm, "colData")@rownames)
+twtpm_df <- as.data.frame(attr(thompson_wtpm, "colData"))
+tblcvsf_df <- as.data.frame(attr(thompson_blcvsf, "colData"))
+t_df <- as.data.frame(attr(thompson, "colData"))
+
+## it looks like wtpm and t_df are the same. But blcvsf is different- only DX are shown. All blcvsf are in t_df. 
+## t_df is half the size of thompson_2017. I'm not sure why
+
+## combine failure 2018/2019 from India
+## combine thompson data? Should colData be the same? 
+## 
+
+```
+
+## new counts matrix with summed values of thompson_2017
+```{r}
+
+mat <- as.matrix(thompson_2017)
+
+x <- colnames(mat[, seq_len(ncol(mat)) %% 2 == 0])
+
+# Function to apply 'fun' to object 'x' over every 'by' columns
+# Alternatively, 'by' may be a vector of groups
+byapply <- function(x, by, fun, ...)
+{
+    # Create index list
+    if (length(by) == 1)
+    {
+        nc <- ncol(x)
+        split.index <- rep(1:ceiling(nc / by), each = by, length.out = nc)
+    } else # 'by' is a vector of groups
+    {
+        nc <- length(by)
+        split.index <- by
+    }
+    index.list <- split(seq(from = 1, to = nc), split.index)
+
+    # Pass index list to fun using sapply() and return object
+    sapply(index.list, function(i)
+            {
+                do.call(fun, list(x[, i], ...))
+            })
+}
+
+y <- as.matrix(byapply(mat, 2, rowSums))
+colnames(y) <- x
+
+dfx <- df[df$Sample.Name %in% x,]
+
+
+thomp_se <- SummarizedExperiment(assays=SimpleList("counts"= y), 
+                                 colData = dfx)
+saveRDS(thomp_se, file = "thompson_2017_SE.RDS")
+
+```
+
+
+# india_2019 data
+```{r}
+
+
+# colData for india_2019
+counts <- india_2019
+
+# edit colnames for india_2019
+n <- colnames(india_2019)
+## remove X
+n <- gsub("X", "", n)
+## change BL to 0; M2 to 2; "_" to ""
+n <- gsub("BL", "0",n)
+n <- gsub("M2", "2",n)
+n <- gsub("_", "", n)
+
+which(n %!in% df$X)
+
+n <- paste("X", n, sep = "_")
+
+
+df[df$batch == 2,"X"] <- paste("X", df[df$batch == 2,"X"], sep = "_")
+
+## change colnames to edited names
+
+
+colnames(india_2019) <- n
+
+
+
+# edit colnames for india_2018
+n <- colnames(india_2018)
+## remove X
+n <- gsub("X", "", n)
+## change BL to 0; M2 to 2; "_" to ""
+n <- gsub("BL", "0",n)
+n <- gsub("M2", "2",n)
+n <- gsub("[:.:]", "", n)
+
+
+which(n %!in% df$X) ## 11 23 26 27 30 32 33 36 37 40 44 45 46 47 48 51 56 61
+
+n[c(11, 23, 26, 27, 30, 32, 33, 36, 37, 40, 44, 45, 46, 47, 48, 51, 56, 61)] <- c("10200059A0",  "10200133A0",  "10200169A0",  "10200184A0",  "10200207A0",  "10200215A0", 
+  "10200219A0",  "10200230A0",  "10200248A0",  "10200253A0",  "10200266A0",  "10200274A0", 
+ "10200280A0",  "10200309A0",  "10200318A0",  "10200366A0",  "10200447A0",  "10200654A0") 
+
+## change colnames for india_2018
+colnames(india_2018) <- n
+
+
+# merge coldata
+# make df.2018 able to merge
+#df.2019 <- df.2019[,-c(27:31)]
+
+df <- rbind(df.2018, df.2019)
+
+# merge counts
+counts <- cbind(india_2018, india_2019)
+
+
+# make sure names in counts matchs subjid
+
+sum(colnames(counts) %in% df$X) # they don't all match
+
+## variable for colnames(counts)
+y <- colnames(counts)
+
+which(df$X %!in% y) ## fix
+
+
+
+df <- df[-grep("10200265A2", df$X),]
+df <- df[-grep("10200219A2", df$X),]
+df <- df[-grep("X_10200059A0", df$X),]
+
+which(df$X %!in% y) # 0 
+
+which( y %!in% df$X) ## c(23 26 27 30 32 36 37 40 44 45 46 47 48 51)
+
+# y[c(23, 26 ,27, 30, 32, 36, 37, 40, 44, 45, 46, 47, 48, 51)] <- c("10200133A0", "10200169A0", "10200184A0", "10200207A0", "10200215A0", "10200230A0",
+# "10200248A0", "10200253A0", "10200266A0", "10200274A0", "10200280A0", "10200309A0", "10200318A0", "10200366A0")
+
+# match tb failure status with data_annot 
+df$subjid <- gsub("-", "", df$subjid)
+data_annot$subjid <- gsub("-", "", data_annot$subjid)
+
+
+data_annot[which(data_annot$subjid %!in% df$subjid),"subjid"] 
+
+# data_annot[c(11, 23, 26, 27, 30, 31, 32, 33, 34, 37, 38, 41, 45, 46, 47, 48, 49, 52, 57, 62), "subjid"] <- c("10200059A0" ,  "10200133A0" ,  "10200169A0" ,  "10200184A0" ,  "10200207A0" ,   "10200208A0" ,  "10200215A0" ,  "10200219A0" ,  "10200225A0" ,  "10200230A0" ,  "10200248A0" ,  "10200253A0" ,  "10200266A0" ,  "10200274A0" ,  "10200280A0" , "10200309A0" ,  "10200318A0" ,  "10200366A0" ,  "10200447A0" ,  "10200654A0" )
+
+# match data_annot$subjtype to df
+df$subjtype2 <- data_annot$subjtype[ match(df$subjid, data_annot$subjid)]
+
+
+# change NA's to match; all are "Controls"
+df[c(62, 64, 66, 68, 70, 72, 74, 76, 79, 81, 83, 85, 88, 90, 92, 94, 96, 98, 99),'subjtype2'] <- "Control"
+
+# make subjtype like David Jenkins'
+df$subjtype <- df$subjtype2
+
+df$subjtype2 <- NULL
+
+
+# Repeat with totmiss column
+df$totmiss <- data_annot$totmiss[ match(df$subjid, data_annot$subjid)]
+
+
+# turn it all into a summarized experiment
+
+india_se <- SummarizedExperiment(assays = SimpleList(as.matrix(counts)), colData = df)
+names(assays(india_se)) <- "counts"
+
+saveRDS(india_se, "india_se.RDS")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## india_2019 as summarized experiment object
+```{r, eval=FALSE}
+
+
+
+india_2019_SE <- SummarizedExperiment(assays= SimpleList(counts = india_2019), 
+                                      colData = indata@colData,
+                                      metadata = indata@metadata)
+
+colData(india_2019_se)$batch <- rep(2)
+
+
+```
+
+
+# india_2018
+```{r}
+
+#lnames <- load("failure_relapse_india.Rdata") # david jenkins india_2018_SE and results
+#lnames
+
+#colData for india_2018
+ddf <- (data_annot)
+rownames(ddf) <- ddf$subjid
+
+y <- gsub("-", "",rownames(ddf))
+
+rownames(ddf) <- y
+
+# edit colnames for india_2018
+n <- colnames(india_2018)
+## remove X
+n <- gsub("X", "", n)
+## change BL to 0; M2 to 2; "_" to ""
+n <- gsub("BL", "0",n)
+n <- gsub("M2", "2",n)
+n <- gsub("[:.:]", "", n)
+
+## change colnames for india_2018
+colnames(india_2018) <- n
+
+# n=61, y=62, one extra in the "indata" colData
+coldata_2018 <- filter(ddf, rownames(ddf) %in% n)
+## look at extra row
+extra_2018 <- filter(ddf, !rownames(ddf) %in% n)
+
+## batch column for correction
+coldata_2018$batch <- rep(1)
+
+# change india_2018 to "counts" assay
+counts <- india_2018
+
+#make summarizedExperiment object
+india_2018_SE <- SummarizedExperiment(assays=(counts), colData = coldata_2018)
+
+saveRDS(india_2018_SE, "india_2018_SE.RDS")
+
+
+```
+
+
+```{r}
+df <- as.data.frame(india_2018_SE@colData@rownames)
+names(df) <- "subjid"
+df$study <- rep("india_2018")
+
+
+df1 <- as.data.frame(colnames(india_2019))
+names(df1) <- "subjid"
+df1$study <- rep("india_2019")
+
+df2 <- as.data.frame(thompson_se@colData@rownames)
+df2$study <- rep("thompson")
+
+
+df <- rbind(df, df1)
+```
+
+
+
+
+
+```{r}
+df.2018[11,1] <- "10200059A0"
+df.2018[11,2] <- "102-00059-A0"
+df.2018[23,2] <- "102-00133-A0"
+df.2018[23,1] <- "10200133A0"
+df.2018[26,1] <- "10200169A0"
+df.2018[26,2] <- "102-00169-A0"
+df.2018[27,1] <- "10200184A0"
+df.2018[27,2] <- "102-00184-A0"
+df.2018[30,1] <- "10200207A0"
+df.2018[30,2] <- "102-00207-A0"
+df.2018[31,1] <- "10200208A"
+df.2018[31,2] <- "102-00208-A0"
+df.2018[32,1] <- "10200215A0"
+df.2018[32,2] <- "102-00215-A0"
+df.2018[33,1] <- "10200219A0"
+df.2018[33,2] <- "102-00219-A0"
+
+df.2018[36,1] <- "10200230A0"
+df.2018[36,2] <- "102-00230-A0"
+df.2018[37,1] <- "10200248A0"
+df.2018[37,2] <- "102-00248-A0"
+
+df.2018[40,1] <- "10200253A0"
+df.2018[40,2] <- "102-00253-A0"
+df.2018[44,1] <- "10200266A0"
+df.2018[44,2] <- "102-00266-A0"
+df.2018[45,1] <- "10200274A0"
+df.2018[45,2] <- "102-00274-A0"
+df.2018[46,1] <- "10200280A0"
+df.2018[46,2] <- "102-00280-A0"
+df.2018[47,1] <- "10200309A0"
+df.2018[47,2] <- "102-00309-A0"
+df.2018[48,1] <- "10200318A0"
+df.2018[48,2] <- "102-00318-A0"
+df.2018[51,1] <- "10200366A0"
+df.2018[51,2] <- "102-00366-A0"
+df.2018[56,1] <- "10200447A0"
+df.2018[56,2] <- "102-00447-A0"
+df.2018[61,1] <- "10200654A0"
+df.2018[61,2] <- "102-00654-A0"
+
+
+
+
+
+```
+
+```{r}
+df <- df.2018 %>% 
+  filter(X %in% df.2019$X)
+
+
+'%!in%' <- function(x,y)!('%in%'(x,y))
+
+df2 <- df.2018 %>% 
+  filter(X %!in% df.2019$X)
+```
+
+
+
