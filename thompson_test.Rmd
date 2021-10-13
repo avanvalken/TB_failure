@@ -1,0 +1,203 @@
+---
+title: "Thompson_sigs_test"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+    theme: "flatly"
+---
+# Load Data
+
+```{r load}
+suppressPackageStartupMessages({
+  library(singleCellTK)
+  library(DT)
+  library(ComplexHeatmap)
+  library(TBSignatureProfiler)
+  library(reshape2)
+  library(RColorBrewer)
+  library(ggplot2)
+  library(DESeq2)
+  library(tidyverse)
+})
+
+
+indata <- readRDS("thompson_2017_SE.RDS")
+indata <- indata[rowSds(assay(indata, "counts")) != 0,]
+
+# Want to have 5% present rate
+indata <- indata[apply(assay(indata,"counts") != 0, 1, mean)>.2,] 
+
+
+indata  = mkAssay(indata, log = TRUE, counts_to_CPM = TRUE)
+assays(indata)
+
+colData(indata)$treatmentresult[is.na(colData(indata)$treatmentresult)] <- "Healthy Control"
+colData(indata)$treatmentresult <- factor(colData(indata)$treatmentresult,
+                                           levels = c("Not Cured",
+                                                      "Possible Cure",
+                                                      "Probable Cure",
+                                                      "Definite Cure",
+                                                      "Unevaluable", 
+                                                      "Healthy Control"))
+colData(indata)$Time <- factor(colData(indata)$Time,
+                                           levels = c("DX",
+                                                      "day_7",
+                                                      "week_4",
+                                                      "week_24"))
+# removes S220, S221, S222, and S164
+indata = indata[,is.na(colData(indata)$disease_state)==FALSE]
+
+knitr::kable(table(colData(indata)[,c("Time", "treatmentresult")]))
+```
+
+## Separate timepoint object
+```{r}
+indata_all <- indata
+
+indata_dx <- indata[,colData(indata)$disease_state == "TB Subjects" &
+                          colData(indata)$Time == "DX"]
+indata_dx2 <- indata_dx[,grepl(pattern = "Not Cured|Definite Cure", colData(indata_dx)$treatmentresult, fixed = FALSE)]
+
+indata_dx2$treatmentresult <- as.factor(as.character(indata_dx2$treatmentresult))
+
+indata_dx2$treatmentresult <- gsub("Not Cured", "failure", indata_dx2$treatmentresult)
+
+indata_dx2$treatmentresult <- gsub("Definite Cure", "cure", indata_dx2$treatmentresult)
+
+indata_dx2$treatmentresult <- as.factor(indata_dx2$treatmentresult)
+
+
+indata_dx3 <- SummarizedExperiment(assays = assays(indata_dx2), 
+                                   colData = colData(indata_dx2))
+```
+
+
+# Testing signatures
+```{r}
+
+indata <- indata_dx3
+
+#New Signatures
+TBsignatures$'CYTO6' <- c("CCL11", "IFNG", "IL15", "IL1B", "IL6", "CXCL10")
+
+TBsignatures$Leong_RISK_29 <- c("SRBD1", "ZNF419", "SH2D1B","CTSA", "GSTA4", "AGAP9", "MOB3C", "WARS1", "LUC7L", "ZNRF1", "CIRBP", "PRSS53", "APOL6", "TCN2", "MDN1", "SNRNP70", "SLC3A1", "NAGA", "SPDYE5",  "SPSB1", "CCDC14",  "IL31RA", "DERA", "FUT4",
+"NEIL1",   "ENO3",   "CCDC78", "HM13","ZNF202" )
+
+TBsignatures$Zak_RISK_16 <- c("ANKRD22","APOL1","BATF2" ,"ETV7","FCGR1A", "FCGR1B",  "GBP1","GBP2","GBP4","GBP5", "SCARF1","SEPTIN4", "SERPING1", "STAT1","TAP1","TRAFD1")
+TBsignatures$Suliman_RISK_4 <- c("GAS6", "SEPTIN4", "CD1C", "BLK")
+
+TBsignatures$'Leong_RISK_29_up' = c("SPSB1","MOB3C","FUT4","DERA","WARS","ZNRF1","SLC3A1","SRBD1",
+                                    "HM13", "CTSA","TCN2", "APOL6","NAGA","IL31RA")
+TBsignatures$'Leong_RISK_29_dn' = c("SH2D1B","AGAP9","ZNF202","NEIL1","LUC7L","CCDC78","PRSS53","ENO3",
+                                    "CIRBP","SNRNP70","ZNF419","CCDC14","GSTA4","MDN1","SPDYE5")
+
+samp_tbsignatures <- TBsignatures
+
+samp_tbsignatures$Hoang_OD_3 <- NULL
+samp_tbsignatures$Suliman_RISK_2 <- NULL
+samp_tbsignatures$Chendi_HIV_2 <- NULL
+
+ssgsea_res <- runTBsigProfiler(indata, useAssay = "log_cpm", algorithm = "ssGSEA",
+                               signatures = samp_tbsignatures, parallel.sz = 4)
+
+```
+### ssGSEA {.tabset}
+
+#### Heatmap
+
+```{r }
+signatureHeatmap(ssgsea_res, name="ssGSEA", signatureColNames = names(samp_tbsignatures),
+                 annotationColNames = c("treatmentresult"),
+                 showColumnNames = FALSE, scale = TRUE,
+                 split_heatmap='none')
+```
+
+#### Boxplot
+
+```{r }
+signatureBoxplot(ssgsea_res, name="ssGSEA", signatureColNames = names(samp_tbsignatures),
+                 annotationColName = c("treatmentresult"), scale = TRUE) #rotateLabels = TRUE,
+```
+
+#### Boxplots Single {.tabset}
+
+```{r , results="asis"}
+for (i in names(samp_tbsignatures)){
+
+  cat("#####", i, "\n")
+
+  print(signatureBoxplot(ssgsea_res, name=i, signatureColNames = i,
+                 annotationColName = c("treatmentresult"), rotateLabels = T))
+
+  cat("\n\n")
+}
+
+```
+
+#### Signature plots {.tabset}
+```{r , results="asis"}
+for (i in names(samp_tbsignatures)){
+
+  cat("#####", i, "\n")
+
+  signatureGeneHeatmap(ssgsea_res, useAssay="log_cpm",
+                     samp_tbsignatures[[i]],
+                     name = i, signatureColNames = NULL,
+                     annotationColNames = c("treatmentresult",i),
+                     showColumnNames = FALSE, 
+                     column_order =  NULL)
+
+  cat("\n\n")
+}
+
+```
+
+
+#### AUC Table
+```{r, message = FALSE}
+set.seed(0)
+tableAUC(ssgsea_res,
+         annotationColName = "treatmentresult",
+         signatureColNames = names(samp_tbsignatures),
+         num.boot = 100,
+         pb.show = FALSE)
+```
+
+#### AUC Boxplots {.tabset}
+```{r, message = FALSE}
+set.seed(0)
+compareBoxplots(ssgsea_res, 
+                annotationColName = "treatmentresult",
+                signatureColNames = names(samp_tbsignatures),
+                pb.show = FALSE, 
+                fill.col = "blue",
+                rotateLabels = TRUE)
+```
+
+#### ROC plots
+```{r, message = FALSE, fig.height = 9, fig.width = 12}
+signatureROCplot_CI(inputData = ssgsea_res,
+                   signatureColNames = names(samp_tbsignatures),
+                   annotationColName = "treatmentresult")
+
+```
+
+#### Separate ROC plots  {.tabset}
+
+```{r, results = 'asis', message = FALSE}
+for (i in names(samp_tbsignatures)){
+
+  cat("#####", i, "\n")
+
+  print(signatureROCplot_CI(inputData = ssgsea_res,
+                   signatureColNames = i,
+                   annotationColName = "treatmentresult",
+                   name = paste("ROC plot,", i, sep = " ")))
+
+  cat("\n\n")
+}
+```
+
+
